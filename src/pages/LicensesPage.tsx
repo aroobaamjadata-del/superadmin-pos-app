@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Plus, Search, Copy, RefreshCw, X, Loader2, Key, ShieldOff, ShieldCheck, Eye } from 'lucide-react'
-import { licenseApi } from '@/lib/api'
+import { licenseApi, tenantApi } from '@/lib/api'
 import { generateLicenseKey, formatDate, getStatusBadgeClass, copyToClipboard, daysUntilExpiry, formatRelativeTime } from '@/lib/utils'
-import type { License } from '@/types/database'
+import type { License, Tenant } from '@/types/database'
 import toast from 'react-hot-toast'
 
 const DEMO_LICENSES: License[] = [
@@ -58,12 +58,31 @@ const TENANT_OPTIONS = [
 
 export default function LicensesPage() {
   const [licenses, setLicenses] = useState<License[]>(DEMO_LICENSES)
+  const [tenants, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [viewLicense, setViewLicense] = useState<License | null>(null)
   const [showVerify, setShowVerify] = useState(false)
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const tens = await tenantApi.list()
+      if (tens.length > 0) setTenants(tens)
+      
+      const lics = await licenseApi.list()
+      if (lics.length > 0) setLicenses(lics)
+    } catch {
+      // Fallback
+      setTenants(TENANT_OPTIONS.map(idName => ({ id: idName.id, business_name: idName.name, tenant_code: 'DEMO' } as Tenant)))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadData() }, [loadData])
 
   const filtered = licenses.filter((l) => {
     const q = search.toLowerCase()
@@ -111,6 +130,10 @@ export default function LicensesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button className="btn-secondary" onClick={loadData}>
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
           <button className="btn-secondary" onClick={() => setShowVerify(true)}>
             <ShieldCheck size={15} /> Verify License
           </button>
@@ -251,6 +274,7 @@ export default function LicensesPage() {
       {/* Generate License Modal */}
       {showModal && (
         <GenerateLicenseModal
+          tenants={tenants}
           onClose={() => setShowModal(false)}
           onGenerate={(lic) => {
             setLicenses((prev) => [lic, ...prev])
@@ -271,9 +295,9 @@ export default function LicensesPage() {
   )
 }
 
-function GenerateLicenseModal({ onClose, onGenerate }: { onClose: () => void; onGenerate: (l: License) => void }) {
+function GenerateLicenseModal({ onClose, onGenerate, tenants }: { onClose: () => void; onGenerate: (l: License) => void; tenants: Tenant[] }) {
   const [form, setForm] = useState({
-    tenant_id: '1',
+    tenant_id: tenants.length > 0 ? tenants[0].id : '1',
     product_name: 'POS Professional',
     max_activations: 10,
     expires_at: new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0],
@@ -301,7 +325,7 @@ function GenerateLicenseModal({ onClose, onGenerate }: { onClose: () => void; on
         expires_at: form.expires_at + 'T00:00:00Z',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        tenant: TENANT_OPTIONS.find(t => t.id === form.tenant_id) as License['tenant'],
+        tenant: (tenants.find(t => t.id === form.tenant_id) || { business_name: 'Demo Tenant', tenant_code: 'TEN-DEMO' }) as License['tenant'],
       }
       onGenerate(demoLic)
     } finally {
@@ -332,7 +356,7 @@ function GenerateLicenseModal({ onClose, onGenerate }: { onClose: () => void; on
             <div>
               <label className="form-label">Tenant</label>
               <select id="license-tenant-select" className="form-select" value={form.tenant_id} onChange={(e) => set('tenant_id', e.target.value)} required>
-                {TENANT_OPTIONS.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {tenants.map((t) => <option key={t.id} value={t.id}>{t.business_name}</option>)}
               </select>
             </div>
             <div>
