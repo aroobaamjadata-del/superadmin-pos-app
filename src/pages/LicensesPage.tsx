@@ -313,6 +313,12 @@ function GenerateLicenseModal({ onClose, onGenerate, tenants }: { onClose: () =>
     setSaving(true)
     try {
       const lic = await licenseApi.generate({ ...form, expires_at: form.expires_at + 'T00:00:00Z' })
+      
+      // Attach the local tenant object to the response if the backend didn't return it populated
+      if (!lic.tenant) {
+        lic.tenant = (tenants.find(t => t.id === form.tenant_id) || { business_name: 'Unknown', tenant_code: 'UNKNOWN' }) as License['tenant'];
+      }
+      
       onGenerate(lic)
     } catch {
       const demoLic: License = {
